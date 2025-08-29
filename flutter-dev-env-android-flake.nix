@@ -24,7 +24,12 @@
         build-tools-34-0-0
         platform-tools
         cmdline-tools-latest
+        emulator
+        system-images-android-34-default-x86-64 # find with nix flake show github:tadfisher/android-nixpkgs | grep system-images
       ]);
+
+      # Define cmdlineToolsBin here so it's visible in the devShells definition
+      cmdlineToolsBin = "${myAndroidSdk}/share/android-sdk/cmdline-tools/latest/bin";
 
     in {
       devShells.default = pkgs.mkShell {
@@ -39,6 +44,7 @@
         shellHook = ''
           export ANDROID_HOME=${myAndroidSdk}/share/android-sdk
           export ANDROID_SDK_ROOT=${myAndroidSdk}share/android-sdk
+          export PATH="$PATH:${cmdlineToolsBin}"
           export JAVA_HOME=${pkgs.jdk}
         '';
       };
