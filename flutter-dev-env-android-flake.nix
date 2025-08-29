@@ -25,7 +25,7 @@
         platform-tools
         cmdline-tools-latest
         emulator
-        system-images-android-34-default-x86-64 # find with nix flake show github:tadfisher/android-nixpkgs | grep system-images
+        system-images-android-34-google-apis-playstore-x86-64 # find with nix flake show github:tadfisher/android-nixpkgs | grep system-images
       ]);
 
       # Define cmdlineToolsBin here so it's visible in the devShells definition
