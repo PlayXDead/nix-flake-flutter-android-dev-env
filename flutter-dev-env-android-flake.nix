@@ -7,7 +7,7 @@
     android.url = "github:tadfisher/android-nixpkgs";
   };
 
-  outputs = { self, nixpkgs, flake-utils, android, }: 
+  outputs = { self, nixpkgs, flake-utils, android, }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -18,7 +18,6 @@
           };
         };
 
-        # Compose Android SDK
         myAndroidSdk = android.sdk.${system} (sdkPkgs: with sdkPkgs; [
           platforms-android-34
           build-tools-34-0-0
@@ -34,38 +33,41 @@
 
       in {
         devShells.default = pkgs.mkShell {
-          name = "flutter-dev-shell";
-
-          packages = with pkgs; [
-            flutter
-            jdk17
+          buildInputs = [
+            pkgs.flutter
+            pkgs.jdk17
             myAndroidSdk
+            pkgs.zlib
+            pkgs.stdenv.cc.cc.lib
+            pkgs.rlwrap
+            pkgs.gradle
           ];
 
           shellHook = ''
-            # Android SDK & NDK
+            # Android SDK / NDK
             export ANDROID_HOME=${myAndroidSdk}/share/android-sdk
             export ANDROID_SDK_ROOT=$ANDROID_HOME
             export ANDROID_NDK_ROOT=${androidNdkRoot}
-            export PATH=$PATH:${cmdlineToolsBin}
+            export PATH=$PATH:${cmdlineToolsBin}:${myAndroidSdk}/share/android-sdk/emulator
 
             # Java
-            export JAVA_HOME=${pkgs.jdk17}
+            export JAVA_HOME=${pkgs.jdk17}/lib/openjdk
+            export PATH=$JAVA_HOME/bin:$PATH
 
-            # Isolated Gradle home inside project
+            # Gradle
             export GRADLE_USER_HOME=$PWD/.gradle
             mkdir -p $GRADLE_USER_HOME
 
-            # Gradle options: safe daemon, polling file watcher
-            export GRADLE_OPTS="-Dorg.gradle.daemon.idleTimeout=60 -Dorg.gradle.jvmargs=-Xmx8G"
+            export GRADLE_OPTS="-Dorg.gradle.daemon.idleTimeout=60 \
+              -Dorg.gradle.jvmargs=-Xmx8G \
+              -Dorg.gradle.vfs.watch=true \
+              -Dorg.gradle.vfs.watch.mode=polling"
 
-            # Minimal fix: Add emulator folder to PATH
-            export PATH=$PATH:${myAndroidSdk}/share/android-sdk/emulator
+            # Minimal reproducible test setup
+            mkdir -p "$PWD/etc"
+            touch "$PWD/etc/ld-nix.so.preload"
 
-            echo "Flutter/Nix devShell ready!"
-            echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
-            echo "ANDROID_NDK_ROOT: $ANDROID_NDK_ROOT"
-            echo "GRADLE_USER_HOME: $GRADLE_USER_HOME"
+            echo "Flutter + Android devShell ready!"
           '';
         };
       });
