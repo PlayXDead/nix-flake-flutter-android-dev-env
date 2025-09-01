@@ -1,82 +1,128 @@
 {
-  description = "Flutter development environment (reproducible NixOS setup)";
+  description = "Flutter + Android SDK Dev Shell with writable SDK, automatic licenses, NDK, cmdline-tools, and emulator";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    android.url = "github:tadfisher/android-nixpkgs";
   };
 
-  outputs = { self, nixpkgs, flake-utils, android }: 
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          config = {
-            allowUnfree = true;
-            android_sdk.accept_license = true;
-          };
+  outputs = { self, nixpkgs, flake-utils }: {
+
+    devShells.x86_64-linux = let
+      pkgs = import nixpkgs {
+        system = "x86_64-linux";
+        config = {
+          allowUnfree = true;
+          android_sdk.accept_license = true;
         };
+      };
 
-        myAndroidSdk = android.sdk.${system} (sdkPkgs: with sdkPkgs; [
-          platforms-android-34
-          build-tools-34-0-0
-          platform-tools
-          cmdline-tools-latest
-          ndk-26-3-11579264
-          emulator
-          system-images-android-34-google-apis-playstore-x86-64
-        ]);
+      androidEnv = pkgs.androidenv.composeAndroidPackages {
+        platformVersions = [ "34" ];
+        buildToolsVersions = [ "34.0.0" ];
+        includeEmulator = true;
+        includeNDK = true;
+        toolsVersion = "26.1.1";
+      };
 
-        cmdlineToolsBin = "${myAndroidSdk}/share/android-sdk/cmdline-tools/latest/bin";
-        androidNdkRoot = "${myAndroidSdk}/share/android-sdk/ndk/26.3.11579264";
+      # Select NDK version explicitly
+      ndkPath = androidEnv.ndkVersions."27.0.12077973";
 
-        # Newer Flutter SDK for correct templates
-        flutterSdk = pkgs.fetchFromGitHub {
-          owner = "flutter";
-          repo = "flutter";
-          rev = "refs/tags/3.50.0"; # latest stable (adjust if needed)
-          sha256 = "sha256-0g24w5frk9zqmwlrqxfbkpxpi8cc0aljmapxlcph1lbi5mjxikpc"; # placeholder
-        };
-
-      in {
-        devShells.default = pkgs.mkShell {
-          buildInputs = [
-            flutterSdk
-            pkgs.jdk17
-            myAndroidSdk
-            pkgs.zlib
-            pkgs.stdenv.cc.cc.lib
-            pkgs.rlwrap
-            pkgs.gradle
-          ];
-
-          shellHook = ''
-            # Android SDK / NDK
-            export ANDROID_HOME=${myAndroidSdk}/share/android-sdk
-            export ANDROID_SDK_ROOT=$ANDROID_HOME
-            export ANDROID_NDK_ROOT=${androidNdkRoot}
-            export PATH=$PATH:${cmdlineToolsBin}:${myAndroidSdk}/share/android-sdk/emulator
-
-            # Java
-            export JAVA_HOME=${pkgs.jdk17}/lib/openjdk
-            export PATH=$JAVA_HOME/bin:$PATH
-
-            # Gradle
-            export GRADLE_USER_HOME=$PWD/.gradle
-            mkdir -p $GRADLE_USER_HOME
-            export GRADLE_OPTS="-Dorg.gradle.daemon.idleTimeout=60 \
-              -Dorg.gradle.jvmargs=-Xmx8G \
-              -Dorg.gradle.vfs.watch=true \
-              -Dorg.gradle.vfs.watch.mode=polling"
-
-            # Minimal reproducible test setup
-            mkdir -p "$PWD/etc"
-            touch "$PWD/etc/ld-nix.so.preload"
-
-            echo "Flutter + Android devShell ready!"
-          '';
+      flutter-sdk = pkgs.flutter.overrideAttrs (_: {
+        src = pkgs.fetchgit {
+          url = "https://github.com/flutter/flutter.git";
+          rev = "3.22.2";
+          sha256 = "sha256-7ndnIw72YxNB+VeeejEeRD+xxuLXOcWo322s5CMWzBM=";
         };
       });
+
+      flutter-wrapper = pkgs.writeShellScriptBin "flutter" ''
+        export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
+          pkgs.zlib
+          pkgs.libgcc
+          pkgs.stdenv.cc.cc.lib
+        ]}"
+        exec ${flutter-sdk}/bin/flutter "$@"
+      '';
+    in pkgs.mkShell {
+      name = "flutter-android-dev-env";
+
+      buildInputs = [
+        pkgs.bashInteractive
+        pkgs.git
+        pkgs.cmake
+        pkgs.ninja
+        pkgs.python3
+        pkgs.jdk17
+        pkgs.gradle
+        androidEnv.androidsdk
+        ndkPath
+        androidEnv.emulator
+        flutter-wrapper
+      ];
+
+      shellHook = ''
+        set -e
+
+        # Writable SDK path
+        export ANDROID_HOME="$HOME/.android/sdk"
+        export ANDROID_SDK_ROOT="$ANDROID_HOME"
+        export JAVA_HOME="${pkgs.jdk17}"
+        export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+        export PATH="${flutter-wrapper}/bin:$PATH"
+
+        mkdir -p "$ANDROID_HOME"
+
+        # Copy cmdline-tools if missing
+        if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          cp -r ${androidEnv.androidSdkCmdlineTools}/. "$ANDROID_HOME/cmdline-tools/latest"
+        fi
+
+        # Copy NDK if missing
+        if [ ! -d "$ANDROID_HOME/ndk-bundle" ]; then
+          cp -r ${ndkPath}/. "$ANDROID_HOME/ndk-bundle"
+        fi
+
+        # Automatically accept licenses
+        mkdir -p "$ANDROID_HOME/licenses"
+        for license in android-sdk-license android-sdk-preview-license googletv-license; do
+          touch "$ANDROID_HOME/licenses/$license"
+        done
+
+        # Force flutter to accept licenses
+        yes | flutter doctor --android-licenses || true
+        echo "✅ Android SDK licenses accepted."
+
+        # Setup local.properties for Flutter project
+        if [ -d "android" ]; then
+          mkdir -p android
+          {
+            echo "sdk.dir=$ANDROID_SDK_ROOT"
+            echo "flutter.sdk=$(cd $(dirname $(command -v flutter))/.. && pwd)"
+          } > android/local.properties
+          echo "Wrote android/local.properties"
+        fi
+
+        # Patch android/app/build.gradle for Flutter
+        if [ -f "android/app/build.gradle" ]; then
+          if ! grep -q 'flutter_tools/gradle/flutter.gradle' android/app/build.gradle; then
+            cat > android/app/build.gradle <<'EOF'
+def flutterRoot = localProperties.getProperty('flutter.sdk')
+if (flutterRoot == null) {
+  throw new GradleException("Flutter SDK not found. Define location with flutter.sdk in the local.properties file.")
+}
+apply plugin: 'com.android.application'
+apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
+EOF
+            echo "Patched android/app/build.gradle to include flutter.gradle"
+          fi
+        fi
+
+        flutter doctor --quiet
+        echo "✅ Flutter + Android dev shell ready."
+      '';
+    };
+  };
 }
 
