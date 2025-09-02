@@ -17,7 +17,7 @@
         };
       };
 
-      # Android SDK environment from nix store
+      # ✅ Use sdk function from android-nixpkgs with correct NDK package
       androidEnv = android-nixpkgs.sdk.${system} (sdkPkgs: with sdkPkgs; [
         cmdline-tools-latest
         build-tools-34-0-0
@@ -27,8 +27,7 @@
         ndk-25-2-9519653
       ]);
 
-      # Flutter SDK from Git
-      flutterSdk = pkgs.flutter.overrideAttrs (_: {
+      flutter-sdk = pkgs.flutter.overrideAttrs (_: {
         src = pkgs.fetchgit {
           url = "https://github.com/flutter/flutter.git";
           rev = "3.22.2";
@@ -36,16 +35,15 @@
         };
       });
 
-      flutterWrapper = pkgs.writeShellScriptBin "flutter" ''
+      flutter-wrapper = pkgs.writeShellScriptBin "flutter" ''
         export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
           pkgs.zlib
           pkgs.libgcc
           pkgs.stdenv.cc.cc.lib
         ]}"
-        exec ${flutterSdk}/bin/flutter "$@"
+        exec ${flutter-sdk}/bin/flutter "$@"
       '';
-    in
-    {
+    in {
       devShells.default = pkgs.mkShell {
         name = "flutter-android-dev-env";
 
@@ -58,21 +56,29 @@
           pkgs.jdk17
           pkgs.gradle
           androidEnv
-          flutterWrapper
+          flutter-wrapper
         ];
 
         shellHook = ''
           set -e
 
-          # Writable SDK overlay
+          # Writable SDK path
           export ANDROID_HOME="$HOME/.android/sdk"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
           export JAVA_HOME="${pkgs.jdk17}"
-          mkdir -p "$ANDROID_HOME/licenses" "$ANDROID_HOME/avd"
+          export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+          export PATH="${flutter-wrapper}/bin:$PATH"
 
-          # Add nix store SDK components to PATH
-          export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-          export PATH="${flutterWrapper}/bin:$PATH"
+          # --- Safety check: remove bad $ANDROID_HOME ---
+          if [ -e "$ANDROID_HOME" ]; then
+            if [[ "$(readlink -f "$ANDROID_HOME")" == /nix/store/* ]] || [ ! -w "$ANDROID_HOME" ]; then
+              echo "⚠️  Detected read-only or nix-store SDK at $ANDROID_HOME"
+              echo "➡️  Replacing with a fresh writable copy..."
+              rm -rf "$ANDROID_HOME"
+            fi
+          fi
+
+          mkdir -p "$ANDROID_HOME"
 
           # Copy cmdline-tools if missing
           if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
@@ -82,35 +88,40 @@
             elif [ -d "${androidEnv}/cmdline-tools" ]; then
               cp -r ${androidEnv}/cmdline-tools "$ANDROID_HOME/"
             else
-              echo "⚠️ Warning: no cmdline-tools found in androidEnv"
+              echo "⚠️  Warning: no cmdline-tools found in androidEnv"
             fi
           fi
 
-          # Copy NDK if missing
+          # ✅ Copy NDK if missing (updated for ndk-25.2.9519653)
           if [ ! -d "$ANDROID_HOME/ndk/25.2.9519653" ]; then
             mkdir -p "$ANDROID_HOME/ndk"
             cp -r ${androidEnv}/ndk/25.2.9519653 "$ANDROID_HOME/ndk/" || true
           fi
 
-          # Accept licenses
+          # Automatically accept licenses
+          mkdir -p "$ANDROID_HOME/licenses"
           for license in android-sdk-license android-sdk-preview-license googletv-license; do
             touch "$ANDROID_HOME/licenses/$license"
           done
+
+          # Force flutter to accept licenses
           yes | flutter doctor --android-licenses || true
           echo "✅ Android SDK licenses accepted."
 
           # Setup local.properties for Flutter project
           if [ -d "android" ]; then
             mkdir -p android
-            echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
-            echo "flutter.sdk=$(cd $(dirname $(command -v flutter))/.. && pwd)" >> android/local.properties
+            {
+              echo "sdk.dir=$ANDROID_SDK_ROOT"
+              echo "flutter.sdk=$(cd $(dirname $(command -v flutter))/.. && pwd)"
+            } > android/local.properties
             echo "Wrote android/local.properties"
           fi
 
-          # Patch android/app/build.gradle
+          # Patch android/app/build.gradle for Flutter
           if [ -f "android/app/build.gradle" ]; then
             if ! grep -q 'flutter_tools/gradle/flutter.gradle' android/app/build.gradle; then
-              cat >> android/app/build.gradle <<'EOF'
+              cat > android/app/build.gradle <<'EOF'
 def flutterRoot = localProperties.getProperty('flutter.sdk')
 if (flutterRoot == null) {
   throw new GradleException("Flutter SDK not found. Define location with flutter.sdk in the local.properties file.")

@@ -68,6 +68,15 @@
             export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
             export PATH="${flutter-wrapper}/bin:$PATH"
 
+            # --- Safety check: remove bad $ANDROID_HOME ---
+            if [ -e "$ANDROID_HOME" ]; then
+              if [[ "$(readlink -f "$ANDROID_HOME")" == /nix/store/* ]] || [ ! -w "$ANDROID_HOME" ]; then
+                echo "⚠️  Detected read-only or nix-store SDK at $ANDROID_HOME"
+                echo "➡️  Replacing with a fresh writable copy..."
+                rm -rf "$ANDROID_HOME"
+              fi
+            fi
+
             mkdir -p "$ANDROID_HOME"
 
             # Copy cmdline-tools if missing
@@ -84,7 +93,7 @@
 
             # Copy NDK if missing
             if [ ! -d "$ANDROID_HOME/ndk-bundle" ]; then
-              cp -r ${androidEnv.androidsdk}/ndk-bundle/. "$ANDROID_HOME/ndk-bundle"
+              cp -r ${androidEnv.androidsdk}/ndk-bundle/. "$ANDROID_HOME/ndk-bundle" || true
             fi
 
             # Automatically accept licenses
@@ -129,4 +138,3 @@ EOF
       }
     );
 }
-
