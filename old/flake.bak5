@@ -59,32 +59,32 @@
             androidEnv
             flutterWrapper
           ];
-
           shellHook = ''
-            #set -e
-
             export ANDROID_HOME="$PWD/.android/sdk"
             export ANDROID_SDK_ROOT="$ANDROID_HOME"
             export JAVA_HOME="${pkgs.jdk17}"
 
             # Ensure all SDK directories exist
-            mkdir -p "$ANDROID_HOME/licenses"
-            mkdir -p "$ANDROID_HOME/avd"
-            mkdir -p "$ANDROID_HOME/bin"
-            mkdir -p "$ANDROID_HOME/platform-tools"
-            mkdir -p "$ANDROID_HOME/emulator"
+            mkdir -p "$ANDROID_HOME/licenses" "$ANDROID_HOME/avd" "$ANDROID_HOME/bin"
+            mkdir -p "$ANDROID_HOME/platform-tools" "$ANDROID_HOME/emulator"
             mkdir -p "$ANDROID_HOME/ndk/25.2.9519653"
             mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
             mkdir -p "$ANDROID_HOME/platforms/android-34"
             mkdir -p "$ANDROID_HOME/build-tools/34.0.0"
 
-            # Copy SDK components
-            cp -LR ${androidEnv}/share/android-sdk/cmdline-tools/latest/* "$ANDROID_HOME/cmdline-tools/latest/"
-            cp -LR ${androidEnv}/share/android-sdk/ndk/25.2.9519653/* "$ANDROID_HOME/ndk/25.2.9519653/"
-            cp -LR ${androidEnv}/share/android-sdk/platform-tools/* "$ANDROID_HOME/platform-tools/"
-            cp -LR ${androidEnv}/share/android-sdk/emulator/* "$ANDROID_HOME/emulator/"
-            cp -LR ${androidEnv}/share/android-sdk/platforms/android-34/* "$ANDROID_HOME/platforms/android-34/"
-            cp -LR ${androidEnv}/share/android-sdk/build-tools/34.0.0/* "$ANDROID_HOME/build-tools/34.0.0/"
+            # --- Symlink fix for legacy 'tools/latest' path ---
+            mkdir -p "$ANDROID_HOME/tools"
+            if [ ! -L "$ANDROID_HOME/tools/latest" ]; then
+              ln -s "$ANDROID_HOME/cmdline-tools/latest" "$ANDROID_HOME/tools/latest"
+            fi
+
+            # Copy SDK components (exclude system-images)
+            cp -LR ${androidEnv}/share/android-sdk/cmdline-tools/latest/* "$ANDROID_HOME/cmdline-tools/latest/" || true
+            cp -LR ${androidEnv}/share/android-sdk/ndk/25.2.9519653/* "$ANDROID_HOME/ndk/25.2.9519653/" || true
+            cp -LR ${androidEnv}/share/android-sdk/platform-tools/* "$ANDROID_HOME/platform-tools/" || true
+            cp -LR ${androidEnv}/share/android-sdk/emulator/* "$ANDROID_HOME/emulator/" || true
+            cp -LR ${androidEnv}/share/android-sdk/platforms/android-34/* "$ANDROID_HOME/platforms/android-34/" || true
+            cp -LR ${androidEnv}/share/android-sdk/build-tools/34.0.0/* "$ANDROID_HOME/build-tools/34.0.0/" || true
 
             # Copy essential binaries
             for bin in adb avdmanager emulator sdkmanager; do
@@ -118,7 +118,7 @@
             # Patch android/app/build.gradle
             if [ -f "android/app/build.gradle" ]; then
               if ! grep -q 'flutter_tools/gradle/flutter.gradle' android/app/build.gradle; then
-                cat >> android/app/build.gradle <<'EOF'
+cat >> android/app/build.gradle <<'EOF'
 def flutterRoot = localProperties.getProperty('flutter.sdk')
 if (flutterRoot == null) {
   throw new GradleException("Flutter SDK not found. Define location with flutter.sdk in the local.properties file.")
@@ -128,6 +128,71 @@ apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 EOF
                 echo "Patched android/app/build.gradle to include flutter.gradle"
               fi
+            fi
+
+            # --- System image selection + install ---
+            SYSIMG=""
+
+            # Preferred Play Store extension images (highest first)
+            for img in \
+              "system-images;android-34-ext12;google_apis_playstore;x86_64" \
+              "system-images;android-34-ext11;google_apis_playstore;x86_64" \
+              "system-images;android-34-ext10;google_apis_playstore;x86_64" \
+              "system-images;android-34-ext9;google_apis_playstore;x86_64" \
+              "system-images;android-34-ext8;google_apis_playstore;x86_64"; do
+              DIR="$ANDROID_HOME/system-images/$(echo $img | tr ';' '/')"
+              if [ -d "$DIR" ]; then
+                SYSIMG="$img"
+                break
+              fi
+            done
+
+            # Fallback: base Play Store
+            if [ -z "$SYSIMG" ]; then
+              IMG="system-images;android-34;google_apis_playstore;x86_64"
+              DIR="$ANDROID_HOME/system-images/android-34/google_apis_playstore/x86_64"
+              if [ -d "$DIR" ]; then
+                SYSIMG="$IMG"
+              fi
+            fi
+
+            # Fallback: base Google APIs
+            if [ -z "$SYSIMG" ]; then
+              IMG="system-images;android-34;google_apis;x86_64"
+              DIR="$ANDROID_HOME/system-images/android-34/google_apis/x86_64"
+              if [ -d "$DIR" ]; then
+                SYSIMG="$IMG"
+              fi
+            fi
+
+            # Install system image if none found
+            if [ -z "$SYSIMG" ]; then
+              echo "Installing Play Store system image for Android 34..."
+              for img in \
+                "system-images;android-34-ext12;google_apis_playstore;x86_64" \
+                "system-images;android-34-ext11;google_apis_playstore;x86_64" \
+                "system-images;android-34-ext10;google_apis_playstore;x86_64" \
+                "system-images;android-34-ext9;google_apis_playstore;x86_64" \
+                "system-images;android-34-ext8;google_apis_playstore;x86_64" \
+                "system-images;android-34;google_apis_playstore;x86_64" \
+                "system-images;android-34;google_apis;x86_64"; do
+                yes | sdkmanager --sdk_root="$ANDROID_HOME" "$img" || true
+                DIR="$ANDROID_HOME/system-images/$(echo $img | tr ';' '/')"
+                if [ -d "$DIR" ]; then
+                  SYSIMG="$img"
+                  break
+                fi
+              done
+            fi
+
+            # Create default emulator if it does not exist
+            if [ -n "$SYSIMG" ] && ! avdmanager list avd | grep -q 'android_emulator'; then
+              echo "Creating default AVD: android_emulator"
+              yes | avdmanager create avd \
+                --name android_emulator \
+                --package "$SYSIMG" \
+                --device "pixel" \
+                --force
             fi
 
             flutter doctor --quiet
