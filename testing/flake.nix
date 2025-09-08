@@ -114,7 +114,7 @@
             cp -r ${pkgs.flutter}/packages/flutter_tools/templates/app/* .
 
             # Ensure the android directory exists before generating files in it
-	    mkdir -p android/gradle/wrapper android/app
+	    mkdir -p android android/gradle/wrapper android/app
 
 	    cat > android/build.gradle <<EOF
 	      // Top-level build file where you can add configuration options common to all sub-projects/modules.
