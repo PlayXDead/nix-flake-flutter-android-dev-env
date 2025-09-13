@@ -32,7 +32,7 @@
           system-images-android-36-google-apis-playstore-x86-64
         ]);
 
-        # ✅ Create a patched Flutter derivation. This is the idiomatic Nix way.
+        # Create a patched Flutter derivation. This is the idiomatic Nix way.
         patchedFlutter = pkgs.flutter.overrideAttrs (oldAttrs: {
           # This patchPhase runs during the package's build time.
           patchPhase = ''
@@ -42,18 +42,15 @@
             # This is crucial for making Flutter work reliably in a Nix environment.
             substituteInPlace $FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterTask.kt \
               --replace 'val cmakeExecutable = project.file(cmakePath).absolutePath' 'val cmakeExecutable = "cmake"'
-	    substituteInPlace $FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterTask.kt \
-	      --replace 'val ninjaExecutable = project.file(ninjaPath).absolutePath' 'val ninjaExecutable = "ninja"'
-	    substituteInPlace packages/flutter_tools/gradle/src/main/scripts/CMakeLists.txt \
-	      --replace-fail "/cmake/3.22.1/bin/ninja" "${pkgs.ninja}/bin/ninja"
-
+            substituteInPlace $FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterTask.kt \
+              --replace 'val ninjaExecutable = project.file(ninjaPath).absolutePath' 'val ninjaExecutable = "ninja"'
             runHook postPatch
           '';
         });
 
-		# >>> PIN FOR COMPATIBILITY >>>
-	androidBuildToolsVersion = "36.0.0";
-	androidSdkVersion = "36";
+        # >>> PIN FOR COMPATIBILITY >>>
+        androidBuildToolsVersion = "36.0.0";
+        androidSdkVersion = "36";
         minSdkVersion = "21"; 
         gradleVersion = "8.1";
         kotlinVersion = "2.0.21";
@@ -72,52 +69,37 @@
             pkgs.ninja
             pkgs.python3
             pkgs.jdk17
-	    pkgs.nix-ld
-	    pkgs.gradle
+            pkgs.nix-ld
+            pkgs.gradle
             androidEnv
-	    patchedFlutter
-	  ];  
+            patchedFlutter
+          ];
+
+          #  Critical nix-ld environment variables for dynamic linking compatibility
+          NIX_LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+            pkgs.stdenv.cc.cc
+            pkgs.zlib
+            pkgs.glibc
+          ];
+          
+          NIX_LD = pkgs.lib.fileContents "${pkgs.stdenv.cc}/nix-support/dynamic-linker";
 
           shellHook = ''
-	    # Crucial fix for NixOS and dynamic executables
-	    export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidEnv}/share/android-sdk/build-tools/36.0.0/aapt2 -Dorg.gradle.project.android.cmake.path=${pkgs.cmake}/bin/cmake"
-	  
-	    mkdir -p "$PWD/.android/sdk"
+            echo "Stopping any existing ADB server..."
+            "${androidEnv}/share/android-sdk/platform-tools/adb" kill-server &> /dev/null || true
+            mkdir -p "$PWD/.android/sdk"
             export ANDROID_HOME="$PWD/.android/sdk"
             export ANDROID_SDK_ROOT="$ANDROID_HOME"
             export JAVA_HOME="${pkgs.jdk17}"
-	    export CMAKE_MAKE_PROGRAM=${pkgs.ninja}/bin/ninja
-
-	    # --- START of Fixes for Dynamic Executables ---
-	    # Create a writeable directory to store fixes for dynamically linked executables.
-	    mkdir -p "$PWD/.android-patches"
-
-	    # Create a symlink to Nix's compatible cmake, as the Android SDK version is not compatible.
-	    ln -sf ${pkgs.cmake}/bin/cmake "$PWD/.android-patches/cmake"
-
-	    # Create a symlink to Nix's compatible ninja, as the Android SDK version is not compatible.
-	    #ln -sf ${pkgs.ninja}/bin/ninja "$PWD/.android-patches/ninja"
-
-	    # Add the patches directory to the PATH to ensure they are found first.
-	    export PATH="$PWD/.android-patches:$PATH"
-	    patchelf --set-rpath /run/current-system/sw/lib /home/tim/projects/flakes/.android/sdk/cmake/3.22.1/bin/ninja
-
-	    # --- END of Fixes for Dynamic Executables ---
 
             # Verify Gradle + Java setup
-	    #echo "🔧 Using Gradle:"
-	    gradle --version
+            #echo "🔧 Using Gradle:"
+            gradle --version
 
             echo "🔧 Using Java:"
             "$JAVA_HOME/bin/java" -version
 
             # Ensure all SDK directories exist
-            mkdir -p "$ANDROID_HOME/licenses" "$ANDROID_HOME/avd" "$ANDROID_HOME/bin"
-
-            export ANDROID_HOME="$PWD/.android/sdk"
-            export ANDROID_SDK_ROOT="$ANDROID_HOME"
-            export JAVA_HOME="${pkgs.jdk17}"
-
             mkdir -p "$ANDROID_HOME/licenses" "$ANDROID_HOME/avd" "$ANDROID_HOME/bin"
 
             # Copy over SDK parts including system-images now in androidEnv
@@ -127,6 +109,7 @@
             for bin in adb avdmanager emulator sdkmanager; do
               cp -LR ${androidEnv}/bin/$bin "$ANDROID_HOME/bin/" || true
             done
+	    rm -rf "$ANDROID_HOME/cmake"
 
             chmod -R u+w "$ANDROID_HOME"
             find "$ANDROID_HOME/bin" "$ANDROID_HOME/platform-tools" "$ANDROID_HOME/emulator" \
@@ -141,38 +124,57 @@
 
             flutter config --android-sdk "$ANDROID_HOME"
 
-	    # Create flutter project in root directory if one doesnt exist.
-	    if [ ! -f pubspec.yaml ]; then
-	      echo "No Flutter project found. Creating a new one..."
-	      flutter create .
-	    fi
+            # Create flutter project in root directory if one doesnt exist.
+            if [ ! -f pubspec.yaml ]; then
+              echo "No Flutter project found. Creating a new one..."
+              flutter create .
+            fi
 
-	    mkdir -p android/app/src/main/{kotlin,java}
-	    mkdir -p android/app/src/debug/{kotlin,java}
-	    mkdir -p android/app/src/profile/{kotlin,java}
-	    mkdir -p android/app/src/release/{kotlin,java}
+            mkdir -p android/app/src/main/{kotlin,java}
+            mkdir -p android/app/src/debug/{kotlin,java}
+            mkdir -p android/app/src/profile/{kotlin,java}
+            mkdir -p android/app/src/release/{kotlin,java}
 
+            # Ensure android directories exist (avoid sed failures)
+            mkdir -p android app
 
-	    # Ensure android directories exist (avoid sed failures)
-	    mkdir -p android app
+            if [ -d android ]; then
+              # Create gradle.properties if it doesn't exist
+              touch android/gradle.properties
+              
+              # Use sed to surgically remove existing properties to avoid duplicates  
+              sed -i '/^android\.cmake\.path=/d' android/gradle.properties
+              sed -i '/^android\.ninja\.path=/d' android/gradle.properties
+              sed -i '/^android\.cmake\.version=/d' android/gradle.properties
+              
+              # Append new properties (preserves any other existing config)
+              echo "android.cmake.path=${pkgs.cmake}/bin" >> android/gradle.properties
+              echo "android.ninja.path=${pkgs.ninja}/bin" >> android/gradle.properties
+              echo "android.cmake.version=" >> android/gradle.properties
+            fi
 
-	    # Create or update gradle.properties with the Nix-provided cmake path
-	    if [ -d android ]; then
-	      echo "android.cmake.dir=${pkgs.cmake}/bin" >> android/gradle.properties
-  	    fi
+            # Only patch if gradle.kts files exist
+            if [ -f "android/build.gradle.kts" ]; then
+              echo "⚙️ Pinning Android build tool versions in Kotlin DSL..."
 
-	    # Only patch if gradle.kts files exist
-	    if [ -f "android/build.gradle.kts" ]; then
-	      echo "⚙️ Pinning Android build tool versions in Kotlin DSL..."
+              sed -i -e "s/id(\"com.android.application\") version \"[0-9.]*\"/id(\"com.android.application\") version \"${agpVersion}\"/g" android/build.gradle.kts
+              sed -i -e "s/id(\"org.jetbrains.kotlin.android\") version \"[0-9.]*\"/id(\"org.jetbrains.kotlin.android\") version \"${kotlinVersion}\"/g" android/build.gradle.kts
+            fi
 
-	      sed -i -e "s/id(\"com.android.application\") version \"[0-9.]*\"/id(\"com.android.application\") version \"${agpVersion}\"/g" android/build.gradle.kts
-	      sed -i -e "s/id(\"org.jetbrains.kotlin.android\") version \"[0-9.]*\"/id(\"org.jetbrains.kotlin.android\") version \"${kotlinVersion}\"/g" android/build.gradle.kts
- 	    fi
+            if [ -f "android/app/build.gradle.kts" ]; then
+              sed -i -e "s/minSdk = [0-9a-zA-Z._]*/minSdk = ${minSdkVersion}/g" android/app/build.gradle.kts
+            fi
 
-	    if [ -f "android/app/build.gradle.kts" ]; then
-	      sed -i -e "s/minSdk = [0-9a-zA-Z._]*/minSdk = ${minSdkVersion}/g" android/app/build.gradle.kts
-	    fi
+	    #Support for traditional Groovy build files 
+            if [ -f "android/build.gradle" ]; then
+              echo "⚙️ Pinning Android build tool versions in Groovy DSL..."
+              sed -i -e "s/com.android.application.*version.*'[0-9.]*'/com.android.application' version '${agpVersion}'/g" android/build.gradle
+              sed -i -e "s/org.jetbrains.kotlin.android.*version.*'[0-9.]*'/org.jetbrains.kotlin.android' version '${kotlinVersion}'/g" android/build.gradle
+            fi
 
+            if [ -f "android/app/build.gradle" ]; then
+              sed -i -e "s/minSdkVersion [0-9]*/minSdkVersion ${minSdkVersion}/g" android/app/build.gradle
+            fi
 
             # Create AVD if missing
             if ! avdmanager list avd | grep -q 'android_emulator'; then
@@ -186,11 +188,22 @@
                 --force
             fi
 
+            # ✅ ADDED: Enhanced PATH and tool verification (enhancements over original)
+            export PATH="${pkgs.cmake}/bin:${pkgs.ninja}/bin:$PATH"
+            
+            # Verify our tools are accessible
+            echo "🔧 Using CMake: $(which cmake) ($(cmake --version | head -1))"
+            echo "🔧 Using Ninja: $(which ninja) ($(ninja --version))"
+
             flutter doctor --quiet
             echo "✅ Flutter + Android dev shell ready."
 
             echo "👉 To launch the emulator, run:"
             echo "   emulator -avd android_emulator"
+            
+            echo ""
+            echo "👉 To build your app, run:"
+            echo "   flutter build apk --release"
           '';
         };
       }
