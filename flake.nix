@@ -28,25 +28,32 @@
           platforms-android-36
           emulator
           ndk-26-1-10909125
-          # ✅ include system image inside SDK instead of relying on sdkmanager. This ensures emulator functionality.
+          # include system image inside SDK instead of relying on sdkmanager. This ensures emulator functionality.
           system-images-android-36-google-apis-playstore-x86-64
         ]);
 
-        # Create a patched Flutter derivation. This is the idiomatic Nix way.
-        patchedFlutter = pkgs.flutter.overrideAttrs (oldAttrs: {
-          # This patchPhase runs during the package's build time.
-          patchPhase = ''
-            runHook prePatch
-            # This patch ensures Flutter's Gradle task uses the `cmake` from the
-            # environment's PATH, rather than a hardcoded, absolute path.
-            # This is crucial for making Flutter work reliably in a Nix environment.
-            substituteInPlace $FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterTask.kt \
-              --replace 'val cmakeExecutable = project.file(cmakePath).absolutePath' 'val cmakeExecutable = "cmake"'
-            substituteInPlace $FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterTask.kt \
-              --replace 'val ninjaExecutable = project.file(ninjaPath).absolutePath' 'val ninjaExecutable = "ninja"'
-            runHook postPatch
-          '';
-        });
+	# Patched Flutter derivation.
+	patchedFlutter = pkgs.flutter.overrideAttrs (oldAttrs: {
+	  # This patchPhase runs during the package's build time.
+	  patchPhase = ''
+	    runHook prePatch
+	    
+	    # Patch FlutterTask.kt - this handles the main cmake/ninja paths
+	    substituteInPlace $FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterTask.kt \
+	      --replace 'val cmakeExecutable = project.file(cmakePath).absolutePath' 'val cmakeExecutable = "cmake"' \
+	      --replace 'val ninjaExecutable = project.file(ninjaPath).absolutePath' 'val ninjaExecutable = "ninja"'
+	    
+	    # Also patch any Gradle build scripts that reference cmake directly
+	    find $FLUTTER_ROOT -name "*.gradle" -o -name "*.gradle.kts" | xargs -I {} \
+	      sed -i 's|cmake/[^/]*/bin/cmake|cmake|g' {} 2>/dev/null || true
+	    
+	    # Patch any other cmake references in Flutter tools
+	    find $FLUTTER_ROOT/packages/flutter_tools -name "*.dart" | xargs -I {} \
+	      sed -i 's|/cmake/[^/]*/bin/cmake|cmake|g' {} 2>/dev/null || true
+	    
+	    runHook postPatch
+	  '';
+	});
 
         # >>> PIN FOR COMPATIBILITY >>>
         androidBuildToolsVersion = "36.0.0";
@@ -59,34 +66,61 @@
 #########################################################################################################
       in
       {
-        devShells.default = pkgs.mkShell {
-          name = "flutter-android-dev-env";
+        devShells.default = (pkgs.buildFHSEnv {
+          name = "FHS flutter-android-dev-env";
 
-          buildInputs = [
+          targetPkgs = pkgs: [
             pkgs.bashInteractive
             pkgs.git
             pkgs.cmake
             pkgs.ninja
+	    pkgs.ncurses5
+	    pkgs.libxml2
+	    pkgs.gcc-unwrapped.lib
+	    pkgs.libgcc
+	    pkgs.libedit
+	    pkgs.zlib
+	    pkgs.glibc
+	    pkgs.stdenv.cc.cc.lib
             pkgs.python3
             pkgs.jdk17
             pkgs.nix-ld
             pkgs.gradle
             androidEnv
             patchedFlutter
+	    # Potential missing packages found in steam-run, may add compatibility with Android tools
+	    pkgs.xorg.libX11
+	    pkgs.xorg.libXext
+	    pkgs.xorg.libXi
+	    pkgs.xorg.libXrender
+	    pkgs.fontconfig
+	    pkgs.freetype
+	    pkgs.dbus
+	    pkgs.systemd
+	    pkgs.libpulseaudio
+	    pkgs.alsa-lib
           ];
 
-          #  Critical nix-ld environment variables for dynamic linking compatibility
-          NIX_LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-            pkgs.stdenv.cc.cc
-            pkgs.zlib
-            pkgs.glibc
-          ];
-          
-          NIX_LD = pkgs.lib.fileContents "${pkgs.stdenv.cc}/nix-support/dynamic-linker";
+	  multiPkgs = pkgs: with pkgs; [
+	    zlib
+	    ncurses5
+	  ];
 
-          shellHook = ''
+          profile = ''
+            #  Critical nix-ld environment variables for dynamic linking compatibility
+            export NIX_LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
+              pkgs.stdenv.cc.cc
+              pkgs.zlib
+              pkgs.glibc
+            ]}"
+
+            export LD_LIBRARY_PATH="$NIX_LD_LIBRARY_PATH:$LD_LIBRARY_PATH"
+
+	    echo "FHS shell is active. Setting up Flutter+Android environment..."
+
             echo "Stopping any existing ADB server..."
             "${androidEnv}/share/android-sdk/platform-tools/adb" kill-server &> /dev/null || true
+
             mkdir -p "$PWD/.android/sdk"
             export ANDROID_HOME="$PWD/.android/sdk"
             export ANDROID_SDK_ROOT="$ANDROID_HOME"
@@ -110,6 +144,15 @@
               cp -LR ${androidEnv}/bin/$bin "$ANDROID_HOME/bin/" || true
             done
 	    rm -rf "$ANDROID_HOME/cmake"
+
+	    # Create the cmake directory structure that Gradle expects
+	    mkdir -p "$ANDROID_HOME/cmake/3.22.1/bin"
+
+	    # Create symlinks to our Nix cmake and ninja
+	    ln -sf "$(which cmake)" "$ANDROID_HOME/cmake/3.22.1/bin/cmake"
+	    ln -sf "$(which ninja)" "$ANDROID_HOME/cmake/3.22.1/bin/ninja"
+
+	    echo "Created cmake symlink: $ANDROID_HOME/cmake/3.22.1/bin/cmake -> $(which cmake)"
 
             chmod -R u+w "$ANDROID_HOME"
             find "$ANDROID_HOME/bin" "$ANDROID_HOME/platform-tools" "$ANDROID_HOME/emulator" \
@@ -142,7 +185,7 @@
               # Create gradle.properties if it doesn't exist
               touch android/gradle.properties
               
-              # Use sed to surgically remove existing properties to avoid duplicates  
+              # Use sed to remove existing properties to avoid duplicates  
               sed -i '/^android\.cmake\.path=/d' android/gradle.properties
               sed -i '/^android\.ninja\.path=/d' android/gradle.properties
               sed -i '/^android\.cmake\.version=/d' android/gradle.properties
@@ -151,6 +194,9 @@
               echo "android.cmake.path=${pkgs.cmake}/bin" >> android/gradle.properties
               echo "android.ninja.path=${pkgs.ninja}/bin" >> android/gradle.properties
               echo "android.cmake.version=" >> android/gradle.properties
+
+	      # ALSO ADD CMAKE_MAKE_PROGRAM override
+  	      echo "android.cmake.makeProgram=${pkgs.ninja}/bin/ninja" >> android/gradle.properties
             fi
 
             # Only patch if gradle.kts files exist
@@ -188,7 +234,7 @@
                 --force
             fi
 
-            # ✅ ADDED: Enhanced PATH and tool verification (enhancements over original)
+            # PATH and tool verification
             export PATH="${pkgs.cmake}/bin:${pkgs.ninja}/bin:$PATH"
             
             # Verify our tools are accessible
@@ -205,7 +251,7 @@
             echo "👉 To build your app, run:"
             echo "   flutter build apk --release"
           '';
-        };
-      }
-    );
+	  runScript = "bash";
+        }).env;
+    });
 }
