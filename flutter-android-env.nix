@@ -69,37 +69,50 @@
         devShells.default = (pkgs.buildFHSEnv {
           name = "FHS flutter-android-dev-env";
 
-          targetPkgs = pkgs: [
-            pkgs.bashInteractive
-            pkgs.git
-            pkgs.cmake
-            pkgs.ninja
-	    pkgs.ncurses5
-	    pkgs.libxml2
-	    pkgs.gcc-unwrapped.lib
-	    pkgs.libgcc
-	    pkgs.libedit
-	    pkgs.zlib
-	    pkgs.glibc
-	    pkgs.stdenv.cc.cc.lib
-            pkgs.python3
-            pkgs.jdk17
-            pkgs.nix-ld
-            pkgs.gradle
+          targetPkgs = pkgs: with pkgs; [
+            # Core dev tools
+            bashInteractive
+            git
+            cmake
+            ninja
+            python3
+            jdk17
+            nix-ld
+            gradle
             androidEnv
             patchedFlutter
-	    # Potential missing packages found in steam-run, may add compatibility with Android tools
-	    pkgs.xorg.libX11
-	    pkgs.xorg.libXext
-	    pkgs.xorg.libXi
-	    pkgs.xorg.libXrender
-	    pkgs.fontconfig
-	    pkgs.freetype
-	    pkgs.dbus
-	    pkgs.systemd
-	    pkgs.libpulseaudio
-	    pkgs.alsa-lib
-          ];
+          
+            # FHS runtime dependencies for emulator and other tools
+            glibc
+            zlib
+            ncurses5
+            stdenv.cc.cc.lib
+          
+            # --- For Emulator UI and Graphics --- #
+            #  X11/Wayland windowing system libraries
+            xorg.libX11
+            xorg.libXext
+            xorg.libXi
+            xorg.libXrandr # Often needed for display management
+            xorg.libXrender
+            xorg.libXfixes
+          
+            #  Font and icon rendering
+            fontconfig
+            freetype
+          
+            #  Core GUI Toolkit for the Emulator's side panel
+            qt6.qtbase
+            qt6.qtsvg
+            qt6.qtwayland
+          
+            #  Audio and System Communication
+            dbus
+            libpulseaudio
+            pipewire # Modern audio handler
+          
+            # Graphics driver discovery
+            vulkan-loader          ];
 
 	  multiPkgs = pkgs: with pkgs; [
 	    zlib
