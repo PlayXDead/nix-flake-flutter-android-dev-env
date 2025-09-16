@@ -196,6 +196,10 @@
 	    if [ ! -f pubspec.yaml ]; then
 	      echo "No Flutter project found. Creating a new one..."
 	      flutter create .
+<<<<<<< HEAD
+=======
+	      echo ".android/sdk" >> .gitignore
+>>>>>>> origin/main
 	    fi
 
 	    mkdir -p android/app/src/main/{kotlin,java}
@@ -284,3 +288,7 @@
         }).env;
     });
 }
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/main
