@@ -196,6 +196,7 @@
 	    if [ ! -f pubspec.yaml ]; then
 	      echo "No Flutter project found. Creating a new one..."
 	      flutter create .
+	      echo ".android/sdk" >> .gitignore
 	    fi
 
 	    mkdir -p android/app/src/main/{kotlin,java}
