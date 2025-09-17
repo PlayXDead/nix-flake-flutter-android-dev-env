@@ -30,7 +30,66 @@
           ndk-26-1-10909125
           # include system image inside SDK instead of relying on sdkmanager. This ensures emulator functionality.
           system-images-android-36-google-apis-playstore-x86-64
-        ]);
+        ]) // {
+          # Override the emulator to include the missing Qt/X11 dependencies
+          buildInputs = (androidEnv.buildInputs or []) ++ (with pkgs; [
+            xcb-util-cursor
+            xorg.libXcursor
+            xorg.libX11
+            xorg.libxcb
+            qt6.qtbase
+            qt6.qtsvg
+          ]);
+        };
+
+        wrappedEmulator = pkgs.writeShellScriptBin "run-emulator" ''
+          #!/usr/bin/env bash
+          set -euo pipefail
+          echo "Launching emulator with fixed Qt/X11 env..."
+
+	  # Force DISPLAY if empty
+	  if [ -z "${DISPLAY:-}" ]; then
+	      export DISPLAY=:0
+	  fi
+
+	  # Detect NixOS OpenGL driver for NVIDIA/AMD/Intel
+	  if [ -d "/run/opengl-driver" ]; then
+	      echo "✅ NVIDIA/OpenGL driver detected"
+	      export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
+	      export LIBGL_DRIVERS_PATH="/run/opengl-driver/lib/dri"
+	      export MESA_LOADER_DRIVER_OVERRIDE=""
+	  else
+	      echo "⚠️ NVIDIA driver not found, using Mesa fallback"
+	      export LD_LIBRARY_PATH="${pkgs.mesa}/lib:${pkgs.libdrm}/lib:${pkgs.vulkan-loader}/lib:$LD_LIBRARY_PATH"
+	      export LIBGL_DRIVERS_PATH="${pkgs.mesa}/lib/dri"
+	      export MESA_LOADER_DRIVER_OVERRIDE=i965
+	  fi
+
+	  # Force XAUTHORITY
+	  export XAUTHORITY="$HOME/.Xauthority"
+
+	  # Ensure Qt plugin paths
+	  export QT_QPA_PLATFORM="xcb"
+	  export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
+	  export QML2_IMPORT_PATH="${pkgs.qt6.qtbase}/lib/qt-6/qml"
+	  export QTWEBENGINE_DISABLE_SANDBOX=1
+	  export QT_OPENGL=desktop
+	  export LIBGL_ALWAYS_SOFTWARE=0
+
+	  # Allow local connections to X server (if using Xorg)
+	  xhost +SI:localuser:$USER
+
+	  # Prepend FHS /usr/lib symlinks
+	  FHS_LIB="$HOME/.fhs-emulator-libs"
+	  export LD_LIBRARY_PATH="$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
+
+	  ln -sf ${pkgs.qt6.qtbase}/lib/libQt6Gui.so* "$FHS_LIB/usr/lib/"
+	  ln -sf ${pkgs.qt6.qtsvg}/lib/libQt6Svg.so* "$FHS_LIB/usr/lib/"
+	  ln -sf ${pkgs.qt6.qtwayland}/lib/libQt6WaylandClient.so* "$FHS_LIB/usr/lib/"
+	  ln -sf ${pkgs.qt6.qt5compat}/lib/libQt6CompatWidgets.so* "$FHS_LIB/usr/lib/"
+
+          exec emulator -avd android_emulator -gpu host -no-snapshot -no-snapshot-load -no-snapshot-save "$@"
+        '';
 
 	# Patched Flutter derivation.
 	patchedFlutter = pkgs.flutter.overrideAttrs (oldAttrs: {
@@ -70,66 +129,171 @@
           name = "FHS flutter-android-dev-env";
 
           targetPkgs = pkgs: with pkgs; [
-            # Core dev tools
-            bashInteractive
-            git
-            cmake
-            ninja
-            python3
-            jdk17
-            nix-ld
-            gradle
-            androidEnv
-            patchedFlutter
-          
-            # FHS runtime dependencies for emulator and other tools
-            glibc
-            zlib
-            ncurses5
-            stdenv.cc.cc.lib
-          
-            # --- For Emulator UI and Graphics --- #
-            #  X11/Wayland windowing system libraries
-            xorg.libX11
-            xorg.libXext
-            xorg.libXi
-            xorg.libXrandr # Often needed for display management
-            xorg.libXrender
-            xorg.libXfixes
-          
-            #  Font and icon rendering
-            fontconfig
-            freetype
-          
-            #  Core GUI Toolkit for the Emulator's side panel
-            qt6.qtbase
-            qt6.qtsvg
-            qt6.qtwayland
-          
-            #  Audio and System Communication
-            dbus
-            libpulseaudio
-            pipewire # Modern audio handler
-          
-            # Graphics driver discovery
-            vulkan-loader          ];
+	    # Basic development tools for the shell
+	    bashInteractive
+	    git
+	    cmake
+	    ninja
+	    python3
+	    jdk17
+	    nix-ld
+	    gradle
+	    patchedFlutter
+	    wrappedEmulator
+
+	    # Android SDK components and environment
+	    androidEnv
+
+	    # Core runtime libraries
+	    glibc
+	    zlib
+	    ncurses5
+	    stdenv.cc.cc.lib
+
+	    # Qt 5 & 6 and X11 GUI dependencies
+	    libsForQt5.qt5.qtbase
+	    libsForQt5.qt5.qtsvg
+	    libsForQt5.qt5.qtwayland
+	    libsForQt5.qt5.qttools
+	    libsForQt5.qt5.qtdeclarative
+	    qt6.qt5compat
+	    libsForQt5.qt5ct
+	    qt6.qtbase
+  	    qt6.qtsvg
+	    qt6.qtwayland
+	    qt6.qt5compat
+	    xorg.libX11
+	    xorg.libXext
+	    xorg.libXfixes
+	    xorg.libXi
+	    xorg.libXrandr
+	    xorg.libXrender
+ 	    xorg.libxcb
+	    xorg.xcbutil
+	    xorg.xcbutilwm
+	    xorg.xcbutilimage
+	    xorg.xcbutilkeysyms
+	    xorg.xcbutilrenderutil
+	    libxkbcommon
+  
+ 	    # Graphics and font rendering
+	    mesa
+	    libdrm
+	    vulkan-loader
+	    fontconfig
+	    freetype
+	    mesa-demos
+
+	    # System services and input handling
+	    dbus
+	    libevdev
+	    libpulseaudio
+	    pipewire
+	    udev
+	    libinput
+	    libinput-gestures
+	    at-spi2-atk
+	    at-spi2-core
+	    
+	    # Additional GUI/Qt dependencies for emulator button functionality
+	    gtk3
+	    gdk-pixbuf
+	    cairo
+	    pango
+	    harfbuzz
+	    glib
+	    gsettings-desktop-schemas
+	    
+	    # Critical X11 and cursor dependencies for Qt xcb platform
+	    xcb-util-cursor
+	    xorg.libXcursor
+	    xorg.setxkbmap
+	    xorg.xauth
+	    xorg.xhost
+	    xorg.xset
+          ];
 
 	  multiPkgs = pkgs: with pkgs; [
 	    zlib
 	    ncurses5
+	    mesa
 	  ];
 
 	profile = ''
+	  echo "FHS shell is active. Setting up Flutter+Android environment..."
 	  #  Critical nix-ld environment variables for dynamic linking compatibility
 	  export NIX_LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
-	    pkgs.stdenv.cc.cc
-	    pkgs.zlib
-	    pkgs.glibc
+	      # Core runtime libraries
+	      pkgs.glibc
+	      pkgs.zlib
+	      pkgs.ncurses5
+	      pkgs.stdenv.cc.cc.lib
+
+	      # Qt 5/6 and X11 GUI dependencies
+	      pkgs.libsForQt5.qt5.qtbase
+	      pkgs.libsForQt5.qt5.qtsvg
+	      pkgs.libsForQt5.qt5.qtwayland
+   	      pkgs.libsForQt5.qt5.qttools
+	      pkgs.libsForQt5.qt5.qtdeclarative
+	      pkgs.qt6.qt5compat
+	      pkgs.libsForQt5.qt5ct
+	      pkgs.qt6.qtbase
+	      pkgs.qt6.qtsvg
+	      pkgs.qt6.qtwayland
+	      pkgs.qt6.qt5compat
+	      pkgs.xorg.libX11
+	      pkgs.xorg.libXext
+	      pkgs.xorg.libXfixes
+	      pkgs.xorg.libXi
+	      pkgs.xorg.libXrandr
+	      pkgs.xorg.libXrender
+	      pkgs.xorg.libxcb
+	      pkgs.xorg.xcbutil
+	      pkgs.xorg.xcbutilwm
+	      pkgs.xorg.xcbutilimage
+	      pkgs.xorg.xcbutilkeysyms
+	      pkgs.xorg.xcbutilrenderutil
+	      pkgs.libxkbcommon
+  
+ 	      # Graphics and font rendering
+	      pkgs.mesa
+	      pkgs.libdrm
+	      pkgs.vulkan-loader
+	      pkgs.fontconfig
+	      pkgs.freetype
+
+	      # System services and input handling
+	      pkgs.dbus
+	      pkgs.libpulseaudio
+	      pkgs.pipewire
+	      pkgs.udev
+	      pkgs.libinput
+	      pkgs.libevdev
+	      pkgs.libinput-gestures
+	      pkgs.at-spi2-atk
+	      pkgs.at-spi2-core
+	      
+	      # Additional GUI dependencies
+	      pkgs.gtk3
+	      pkgs.gdk-pixbuf
+	      pkgs.cairo
+	      pkgs.pango
+	      pkgs.harfbuzz
+	      pkgs.glib
+	      pkgs.gsettings-desktop-schemas
+	      
+	      # Critical X11 and cursor dependencies for Qt xcb platform
+	      pkgs.xcb-util-cursor
+	      pkgs.xorg.libXcursor
+	      pkgs.xorg.setxkbmap
+	      pkgs.xorg.xauth
+	      pkgs.xorg.xhost
+	      pkgs.xorg.xset
 	  ]}"
 
 	  export LD_LIBRARY_PATH="$NIX_LD_LIBRARY_PATH:$LD_LIBRARY_PATH"
 
-	  echo "FHS shell is active. Setting up Flutter+Android environment..."
+	  echo "✅ FHS /usr/lib graphics mock initialized at $FHS_LIB/usr/lib"
 
 	  # Fast path for subsequent shell entries
 	  if [ -f "$PWD/.flutter_env_ready" ] && [ -d "$PWD/.android/sdk" ]; then
@@ -137,8 +301,16 @@
 	    export ANDROID_SDK_ROOT="$ANDROID_HOME"
 	    export JAVA_HOME="${pkgs.jdk17}"
 	    export PATH="${pkgs.cmake}/bin:${pkgs.ninja}/bin:$PATH"
+	    # Prepend to LD_LIBRARY_PATH so emulator sees these first
+	    export LD_LIBRARY_PATH="$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
+            echo "✅ FHS graphics symlinks initialized at $FHS_LIB"
 	    echo "⚡ Fast shell entry - Flutter environment ready!"
-	    echo "👉 To launch the emulator, run: emulator -avd android_emulator"
+	    echo "👉 To launch the emulator:"
+	    echo "          run-emulator"
+	    echo "👉 To launch emulator with debug output:"
+	    echo "          run-emulator-debug"
+	    echo "👉 To launch emulator headless (no GUI):"
+	    echo "          run-emulator-headless"
 	    echo "👉 To build your app, run: flutter build apk --release"
 	  else
 	    # Full setup (first time or missing setup)
@@ -179,6 +351,40 @@
 
 	    echo "Created cmake symlink: $ANDROID_HOME/cmake/3.22.1/bin/cmake -> $(which cmake)"
 
+	    # ---- FHS-style /usr/lib mock for emulator ----
+	    FHS_LIB="$HOME/.fhs-emulator-libs"
+	    mkdir -p "$FHS_LIB/usr/lib/dri"
+
+	    # Core Mesa / OpenGL
+	    ln -sf ${pkgs.mesa}/lib/libGL.so.1         "$FHS_LIB/usr/lib/libGL.so.1"
+	    ln -sf ${pkgs.mesa}/lib/libEGL.so.1        "$FHS_LIB/usr/lib/libEGL.so.1"
+   	    ln -sf ${pkgs.mesa}/lib/libGLESv2.so.2     "$FHS_LIB/usr/lib/libGLESv2.so.2"
+	    ln -sf ${pkgs.mesa}/lib/libGLX.so.0        "$FHS_LIB/usr/lib/libGLX.so.0"
+	    ln -sf ${pkgs.mesa}/lib/libOSMesa.so.8     "$FHS_LIB/usr/lib/libOSMesa.so.8"
+
+	    # GLX / X11 and EGL drivers
+	    ln -sf ${pkgs.mesa}/lib/dri/*              "$FHS_LIB/usr/lib/dri/"
+	    ln -sf ${pkgs.libglvnd}/lib/libGLdispatch.so "$FHS_LIB/usr/lib/libGLdispatch.so"
+	    ln -sf ${pkgs.libglvnd}/lib/libGLX.so.0      "$FHS_LIB/usr/lib/libGLX.so.0"
+	    ln -sf ${pkgs.libglvnd}/lib/libEGL.so.1      "$FHS_LIB/usr/lib/libEGL.so.1"
+	    ln -sf ${pkgs.libglvnd}/lib/libGL.so.1       "$FHS_LIB/usr/lib/libGL.so.1"
+
+	    # Vulkan loader
+	    ln -sf ${pkgs.vulkan-loader}/lib/libvulkan.so "$FHS_LIB/usr/lib/libvulkan.so"
+
+	    # Optional: drivers Mesa expects
+	    ln -sf ${pkgs.mesa}/lib/dri/*              "$FHS_LIB/usr/lib/"
+
+	    ln -sf ${pkgs.qt6.qtbase}/lib/libQt6Gui.so* "$FHS_LIB/usr/lib/"
+	    ln -sf ${pkgs.qt6.qtsvg}/lib/libQt6Svg.so* "$FHS_LIB/usr/lib/"
+	    ln -sf ${pkgs.qt6.qtwayland}/lib/libQt6WaylandClient.so* "$FHS_LIB/usr/lib/"
+	    ln -sf ${pkgs.qt6.qt5compat}/lib/libQt6CompatWidgets.so* "$FHS_LIB/usr/lib/"
+
+
+	    # Prepend to LD_LIBRARY_PATH so emulator sees these first
+	    export LD_LIBRARY_PATH="$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
+            echo "✅ FHS graphics symlinks initialized at $FHS_LIB"
+
 	    chmod -R u+w "$ANDROID_HOME"
 	    find "$ANDROID_HOME/bin" "$ANDROID_HOME/platform-tools" "$ANDROID_HOME/emulator" \
 		 "$ANDROID_HOME/cmdline-tools/latest/bin" "$ANDROID_HOME/build-tools" \
@@ -196,10 +402,17 @@
 	    if [ ! -f pubspec.yaml ]; then
 	      echo "No Flutter project found. Creating a new one..."
 	      flutter create .
-<<<<<<< HEAD
-=======
 	      echo ".android/sdk" >> .gitignore
->>>>>>> origin/main
+	    fi
+
+	    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	        echo "No Git repository detected. Initializing..."
+	        git init
+	        git add .
+	        git commit -m "Initial Commit done by Flake for Flutter Android dev shell"
+	        echo "✅ Git repository initialized and initial commit created."
+	    else
+	        echo "Git repository already exists. Skipping initialization."
 	    fi
 
 	    mkdir -p android/app/src/main/{kotlin,java}
@@ -275,9 +488,14 @@
 
 	    # Mark environment as ready for fast path next time
 	    touch "$PWD/.flutter_env_ready"
+	    echo ".flutter_env_ready" >> .gitignore
 
 	    echo "👉 To launch the emulator, run:"
-	    echo "   emulator -avd android_emulator"
+	    echo "    run-emulator"
+	    echo "👉 To launch emulator with debug output:"
+	    echo "    run-emulator-debug"
+	    echo "👉 To launch emulator headless (no GUI):"
+	    echo "    run-emulator-headless"
 	    
 	    echo ""
 	    echo "👉 To build your app, run:"
@@ -288,7 +506,4 @@
         }).env;
     });
 }
-<<<<<<< HEAD
-=======
 
->>>>>>> origin/main
