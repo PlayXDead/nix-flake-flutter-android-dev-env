@@ -42,17 +42,36 @@
           ]);
         };
 
-        wrappedEmulator = pkgs.writeShellScriptBin "run-emulator" ''
-          #!/usr/bin/env bash
-          set -euo pipefail
-          echo "Launching emulator with fixed Qt/X11 env..."
+	wrappedEmulator = pkgs.writeShellScriptBin "run-emulator" ''
+	  #!/usr/bin/env bash
+	  echo "Launching emulator with universal Qt/X11/Wayland fix..."
 
-	  # Force DISPLAY if empty
-	  if [ -z "${DISPLAY:-}" ]; then
-	      export DISPLAY=:0
-	  fi
+	  # ----------------------------
+	  # Detect display server
+	  # ----------------------------
+	  if [ -n "$WAYLAND_DISPLAY" ]; then
+	    echo "🌿 Wayland detected: $WAYLAND_DISPLAY"
+	    USE_WAYLAND=true
+	    export DISPLAY=:0  # Force XWayland
+	  else
+	    echo "🖥️  X11 detected: ${DISPLAY:-:0}"
+	    USE_WAYLAND=false
+ 	  fi
 
-	  # Detect NixOS OpenGL driver for NVIDIA/AMD/Intel
+	  # ----------------------------
+	  # Qt environment
+	  # ----------------------------
+	  export QT_QPA_PLATFORM=xcb
+	  export QT_QPA_PLATFORM_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
+	  export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
+	  export QML2_IMPORT_PATH="${pkgs.qt6.qtbase}/lib/qt-6/qml"
+	  export QTWEBENGINE_DISABLE_SANDBOX=1
+	  export QT_OPENGL=desktop
+	  export QT_QPA_PLATFORMTHEME=gtk3
+
+	  # ----------------------------
+	  # Graphics / OpenGL driver
+	  # ----------------------------
 	  if [ -d "/run/opengl-driver" ]; then
 	      echo "✅ NVIDIA/OpenGL driver detected"
 	      export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
@@ -61,35 +80,15 @@
 	  else
 	      echo "⚠️ NVIDIA driver not found, using Mesa fallback"
 	      export LD_LIBRARY_PATH="${pkgs.mesa}/lib:${pkgs.libdrm}/lib:${pkgs.vulkan-loader}/lib:$LD_LIBRARY_PATH"
-	      export LIBGL_DRIVERS_PATH="${pkgs.mesa}/lib/dri"
+	      export LIBGL_DRIVERS_PATH="${pkgs.mesa}/lib/dri" w
 	      export MESA_LOADER_DRIVER_OVERRIDE=i965
 	  fi
 
-	  # Force XAUTHORITY
-	  export XAUTHORITY="$HOME/.Xauthority"
-
-	  # Ensure Qt plugin paths
-	  export QT_QPA_PLATFORM="xcb"
-	  export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
-	  export QML2_IMPORT_PATH="${pkgs.qt6.qtbase}/lib/qt-6/qml"
-	  export QTWEBENGINE_DISABLE_SANDBOX=1
-	  export QT_OPENGL=desktop
-	  export LIBGL_ALWAYS_SOFTWARE=0
-
-	  # Allow local connections to X server (if using Xorg)
-	  xhost +SI:localuser:$USER
-
-	  # Prepend FHS /usr/lib symlinks
-	  FHS_LIB="$HOME/.fhs-emulator-libs"
-	  export LD_LIBRARY_PATH="$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
-
-	  ln -sf ${pkgs.qt6.qtbase}/lib/libQt6Gui.so* "$FHS_LIB/usr/lib/"
-	  ln -sf ${pkgs.qt6.qtsvg}/lib/libQt6Svg.so* "$FHS_LIB/usr/lib/"
-	  ln -sf ${pkgs.qt6.qtwayland}/lib/libQt6WaylandClient.so* "$FHS_LIB/usr/lib/"
-	  ln -sf ${pkgs.qt6.qt5compat}/lib/libQt6CompatWidgets.so* "$FHS_LIB/usr/lib/"
-
-          exec emulator -avd android_emulator -gpu host -no-snapshot -no-snapshot-load -no-snapshot-save "$@"
-        '';
+	  # ----------------------------
+	  # Run the emulator
+	  # ----------------------------
+	  exec emulator -avd android_emulator -gpu host -no-snapshot -no-snapshot-load -no-snapshot-save "$@"
+	'';
 
 	# Patched Flutter derivation.
 	patchedFlutter = pkgs.flutter.overrideAttrs (oldAttrs: {
@@ -183,6 +182,8 @@
 	    fontconfig
 	    freetype
 	    mesa-demos
+	    linuxPackages.nvidia_x11
+	    libglvnd
 
 	    # System services and input handling
 	    dbus
@@ -259,6 +260,8 @@
 	      pkgs.mesa
 	      pkgs.libdrm
 	      pkgs.vulkan-loader
+	      pkgs.libglvnd
+	      pkgs.linuxPackages.nvidia_x11
 	      pkgs.fontconfig
 	      pkgs.freetype
 
@@ -351,39 +354,39 @@
 
 	    echo "Created cmake symlink: $ANDROID_HOME/cmake/3.22.1/bin/cmake -> $(which cmake)"
 
-	    # ---- FHS-style /usr/lib mock for emulator ----
-	    FHS_LIB="$HOME/.fhs-emulator-libs"
-	    mkdir -p "$FHS_LIB/usr/lib/dri"
-
-	    # Core Mesa / OpenGL
-	    ln -sf ${pkgs.mesa}/lib/libGL.so.1         "$FHS_LIB/usr/lib/libGL.so.1"
-	    ln -sf ${pkgs.mesa}/lib/libEGL.so.1        "$FHS_LIB/usr/lib/libEGL.so.1"
-   	    ln -sf ${pkgs.mesa}/lib/libGLESv2.so.2     "$FHS_LIB/usr/lib/libGLESv2.so.2"
-	    ln -sf ${pkgs.mesa}/lib/libGLX.so.0        "$FHS_LIB/usr/lib/libGLX.so.0"
-	    ln -sf ${pkgs.mesa}/lib/libOSMesa.so.8     "$FHS_LIB/usr/lib/libOSMesa.so.8"
-
-	    # GLX / X11 and EGL drivers
-	    ln -sf ${pkgs.mesa}/lib/dri/*              "$FHS_LIB/usr/lib/dri/"
-	    ln -sf ${pkgs.libglvnd}/lib/libGLdispatch.so "$FHS_LIB/usr/lib/libGLdispatch.so"
-	    ln -sf ${pkgs.libglvnd}/lib/libGLX.so.0      "$FHS_LIB/usr/lib/libGLX.so.0"
-	    ln -sf ${pkgs.libglvnd}/lib/libEGL.so.1      "$FHS_LIB/usr/lib/libEGL.so.1"
-	    ln -sf ${pkgs.libglvnd}/lib/libGL.so.1       "$FHS_LIB/usr/lib/libGL.so.1"
-
-	    # Vulkan loader
-	    ln -sf ${pkgs.vulkan-loader}/lib/libvulkan.so "$FHS_LIB/usr/lib/libvulkan.so"
-
-	    # Optional: drivers Mesa expects
-	    ln -sf ${pkgs.mesa}/lib/dri/*              "$FHS_LIB/usr/lib/"
-
-	    ln -sf ${pkgs.qt6.qtbase}/lib/libQt6Gui.so* "$FHS_LIB/usr/lib/"
-	    ln -sf ${pkgs.qt6.qtsvg}/lib/libQt6Svg.so* "$FHS_LIB/usr/lib/"
-	    ln -sf ${pkgs.qt6.qtwayland}/lib/libQt6WaylandClient.so* "$FHS_LIB/usr/lib/"
-	    ln -sf ${pkgs.qt6.qt5compat}/lib/libQt6CompatWidgets.so* "$FHS_LIB/usr/lib/"
-
-
-	    # Prepend to LD_LIBRARY_PATH so emulator sees these first
-	    export LD_LIBRARY_PATH="$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
-            echo "✅ FHS graphics symlinks initialized at $FHS_LIB"
+	    # # ---- FHS-style /usr/lib mock for emulator ----
+	    # FHS_LIB="$HOME/.fhs-emulator-libs"
+	    # mkdir -p "$FHS_LIB/usr/lib/dri"
+	    #
+	    # # Core Mesa / OpenGL
+	    # ln -sf ${pkgs.mesa}/lib/libGL.so.1         "$FHS_LIB/usr/lib/libGL.so.1"
+	    # ln -sf ${pkgs.mesa}/lib/libEGL.so.1        "$FHS_LIB/usr/lib/libEGL.so.1"
+	    #    ln -sf ${pkgs.mesa}/lib/libGLESv2.so.2     "$FHS_LIB/usr/lib/libGLESv2.so.2"
+	    # ln -sf ${pkgs.mesa}/lib/libGLX.so.0        "$FHS_LIB/usr/lib/libGLX.so.0"
+	    # ln -sf ${pkgs.mesa}/lib/libOSMesa.so.8     "$FHS_LIB/usr/lib/libOSMesa.so.8"
+	    #
+	    # # GLX / X11 and EGL drivers
+	    # ln -sf ${pkgs.mesa}/lib/dri/*              "$FHS_LIB/usr/lib/dri/"
+	    # ln -sf ${pkgs.libglvnd}/lib/libGLdispatch.so "$FHS_LIB/usr/lib/libGLdispatch.so"
+	    # ln -sf ${pkgs.libglvnd}/lib/libGLX.so.0      "$FHS_LIB/usr/lib/libGLX.so.0"
+	    # ln -sf ${pkgs.libglvnd}/lib/libEGL.so.1      "$FHS_LIB/usr/lib/libEGL.so.1"
+	    # ln -sf ${pkgs.libglvnd}/lib/libGL.so.1       "$FHS_LIB/usr/lib/libGL.so.1"
+	    #
+	    # # Vulkan loader
+	    # ln -sf ${pkgs.vulkan-loader}/lib/libvulkan.so "$FHS_LIB/usr/lib/libvulkan.so"
+	    #
+	    # # Optional: drivers Mesa expects
+	    # ln -sf ${pkgs.mesa}/lib/dri/*              "$FHS_LIB/usr/lib/"
+	    #
+	    # ln -sf ${pkgs.qt6.qtbase}/lib/libQt6Gui.so* "$FHS_LIB/usr/lib/"
+	    # ln -sf ${pkgs.qt6.qtsvg}/lib/libQt6Svg.so* "$FHS_LIB/usr/lib/"
+	    # ln -sf ${pkgs.qt6.qtwayland}/lib/libQt6WaylandClient.so* "$FHS_LIB/usr/lib/"
+	    # ln -sf ${pkgs.qt6.qt5compat}/lib/libQt6CompatWidgets.so* "$FHS_LIB/usr/lib/"
+	    #
+	    #
+	    # # Prepend to LD_LIBRARY_PATH so emulator sees these first
+	    # export LD_LIBRARY_PATH="$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
+	    #        echo "✅ FHS graphics symlinks initialized at $FHS_LIB"
 
 	    chmod -R u+w "$ANDROID_HOME"
 	    find "$ANDROID_HOME/bin" "$ANDROID_HOME/platform-tools" "$ANDROID_HOME/emulator" \
@@ -402,6 +405,7 @@
 	    if [ ! -f pubspec.yaml ]; then
 	      echo "No Flutter project found. Creating a new one..."
 	      flutter create .
+	      echo ".android/sdk" >> .gitignore
 	    fi
 
 	    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -505,4 +509,5 @@
         }).env;
     });
 }
+
 
