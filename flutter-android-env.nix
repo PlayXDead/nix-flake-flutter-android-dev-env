@@ -402,7 +402,6 @@
 	    if [ ! -f pubspec.yaml ]; then
 	      echo "No Flutter project found. Creating a new one..."
 	      flutter create .
-	      echo ".android/sdk" >> .gitignore
 	    fi
 
 	    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
