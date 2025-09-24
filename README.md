@@ -10,18 +10,13 @@ of the repository may change.
 2. place flake in a new project directory and run
    "nix develop". this will generate the new
    flutter project and all tooling.
-3. Currently you will need to add .android/sdk
-   to your .gitignore. this will massively speedup
-   shell re-entry and prevent you from hitting any
-   data limits with git. I will have the flake do
-   this automatically in the near future
-4. i reccomend being sure to commit anytime you've
+3. .android/sdk is added automatically to your .gitignore you should consider adding more directories.
+5. i reccomend being sure to commit anytime you've
    finished making changes before re-entering the shell
    to keep shell re-entry fast.
 
 ######################
 CURRENT KNOWN ISSUES
 ######################
-1. BE SURE TO ADD ".android/sdk" to gitignore this is critical
-2. emulator hardware buttons (power home volume etc) are currently not functioning. i hope to have this fixed soon
-3. Physical Keyboard input not detected by emulator. (emulators running great however).
+1. emulator hardware buttons (power home volume etc) are currently not functioning. i hope to have this fixed soon
+2. Physical Keyboard input not detected by emulator. (emulators running great however and onscreen touch keyboard functions).
