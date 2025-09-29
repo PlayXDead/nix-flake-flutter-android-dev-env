@@ -53,9 +53,11 @@
             echo "🌿 Wayland detected: $WAYLAND_DISPLAY"
             USE_WAYLAND=true
             export DISPLAY=:0  # Force XWayland
+            export QT_QPA_PLATFORM=xcb #Force XWayland 
           else
             echo "🖥️  X11 detected: ${DISPLAY:-:0}"
             USE_WAYLAND=false
+            export QT_QPA_PLATFORM=xcb
           fi
 
           # ----------------------------
@@ -69,6 +71,14 @@
           export QT_OPENGL=desktop
           export QT_QPA_PLATFORMTHEME=gtk3
 
+          # Input/accessibility fixes
+          export QT_ACCESSIBILITY=1
+          export QT_IM_MODULE=compose
+          export XMODIFIERS=@im=none
+          export GTK_IM_MODULE=gtk-im-context-simple
+          # Fix for hardware button input events
+          export QT_LOGGING_RULES="qt.qpa.input=false"
+          export QT_QPA_GENERIC_PLUGINS=evdevmouse,evdevkeyboard
           # ----------------------------
           # Graphics / OpenGL driver
           # ----------------------------
@@ -114,7 +124,10 @@
         });
 
         # >>> PIN FOR COMPATIBILITY >>>
+        androidBuildToolsVersion = "36.0.0";
+        androidSdkVersion = "36";
         minSdkVersion = "21"; 
+        gradleVersion = "8.1";
         kotlinVersion = "2.0.21";
         agpVersion = "8.12.3"; # Android Gradle Plugin
 
@@ -290,7 +303,6 @@
           ]}"
 
           export LD_LIBRARY_PATH="$NIX_LD_LIBRARY_PATH:$LD_LIBRARY_PATH"
-
           echo "✅ FHS /usr/lib graphics mock initialized at $FHS_LIB/usr/lib"
 
           # Fast path for subsequent shell entries
@@ -301,15 +313,17 @@
             export PATH="${pkgs.cmake}/bin:${pkgs.ninja}/bin:$PATH"
             # Prepend to LD_LIBRARY_PATH so emulator sees these first
             export LD_LIBRARY_PATH="$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
-                  echo "✅ FHS graphics symlinks initialized at $FHS_LIB"
+            echo "✅ FHS graphics symlinks initialized at $FHS_LIB"
             echo "⚡ Fast shell entry - Flutter environment ready!"
-            echo "👉 To launch the emulator:"
-            echo "          run-emulator"
+            echo "👉 To launch the emulator, run:"
+            echo "    run-emulator"
             echo "👉 To launch emulator with debug output:"
-            echo "          run-emulator-debug"
+            echo "    run-emulator -log-detailed"
             echo "👉 To launch emulator headless (no GUI):"
-            echo "          run-emulator-headless"
-            echo "👉 To build your app, run: flutter build apk --release"
+            echo "    run-emulator -no-window"
+            echo ""
+            echo "👉 To build your app, run:"
+            echo "   flutter build apk --release"
           else
             # Full setup (first time or missing setup)
             echo "Performing full environment setup..."
@@ -457,10 +471,9 @@
             echo "👉 To launch the emulator, run:"
             echo "    run-emulator"
             echo "👉 To launch emulator with debug output:"
-            echo "    run-emulator-debug"
+            echo "    run-emulator -log-detailed"
             echo "👉 To launch emulator headless (no GUI):"
-            echo "    run-emulator-headless"
-            
+            echo "    run-emulator -no-window"
             echo ""
             echo "👉 To build your app, run:"
             echo "   flutter build apk --release"
@@ -470,5 +483,6 @@
       }).env;
     });
 }
+
 
 
