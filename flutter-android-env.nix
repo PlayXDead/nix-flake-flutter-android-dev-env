@@ -124,10 +124,7 @@
         });
 
         # >>> PIN FOR COMPATIBILITY >>>
-        androidBuildToolsVersion = "36.0.0";
-        androidSdkVersion = "36";
         minSdkVersion = "21"; 
-        gradleVersion = "8.1";
         kotlinVersion = "2.0.21";
         agpVersion = "8.12.3"; # Android Gradle Plugin
 
