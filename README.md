@@ -3,9 +3,9 @@
 This flake provides a development environment for building and testing Flutter Android projects. It includes the necessary tools, such as Flutter, CMake, Ninja, and the Android SDK, to create, build, and run Android apps. 
 Getting Started 
 
-* Create a new directory: Create a new directory for your project and navigate into it
+* Create a new directory: Create a new directory for your project 
 * Clone this repository: Clone this repository (or download the flake.nix file) and place the "flake.nix" in your project directory
-* Run nix develop: Run nix develop to enter the development shell
+* Run nix develop: Navigate to your project directory with the flake.nix. Run nix develop to enter the development shell
      
 
 # Features 
