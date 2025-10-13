@@ -1,15 +1,28 @@
-README
+Overview 
 
-Flake is still in development. Most Major hurldes have been overcome but improvements are still needed. 
+This flake provides a development environment for building and testing Flutter Android projects. It includes the necessary tools, such as Flutter, CMake, Ninja, and the Android SDK, to create, build, and run Android apps. 
+Getting Started 
 
+     Create a new directory: Create a new directory for your project and navigate into it
+     Clone this repository: Clone this repository (or download the flake.nix file) and place the "flake.nix" in your project directory
+     Run nix develop: Run nix develop to enter the development shell
+     
 
-    Due to flake generating an FHSEnv shell, "flutter create ." does not initialize a git repo automatically, the flake now intiates a git repo directly after flutter create and submits initial commit. Currently have an issue with .flutter_env_ready cluttering the .gitignore.
-    place flake in a new project directory and run "nix develop". this will generate the new flutter project and all tooling.
-    .android/sdk is added automatically to your .gitignore you should consider adding more directories.
-    i reccomend being sure to commit anytime you've finished making changes before re-entering the shell to keep shell re-entry fast.
+Features 
 
-*Current Known Issues
+    Flutter SDK for building Android apps
+    CMake and Ninja build systems for native code integration
+    Android SDK for creating, testing, and running Android apps
+    Kotlin and Gradle for building and managing Android projects
+    NDK (Native Development Kit) support for adding native code to your project
+     
 
-    emulator hardware buttons (power home volume etc) are currently not functioning. i hope to have this fixed soon
-    Physical Keyboard input not detected by emulator. (emulators running great however and onscreen touch keyboard functions).
+Troubleshooting 
 
+    Verify the NDK version: Check that the ndkVersion variable in flake.nix matches the available versions in your Nixpkgs channel.
+    Check the architecture: Ensure that the system = "x86_64-linux" line is correct for your system architecture.
+     
+
+License 
+
+This flake is licensed under the MIT License . 
