@@ -27,7 +27,7 @@
           platform-tools
           platforms-android-36
           emulator
-          ndk-26-1-10909125
+          ndk-27-0-12077973
           # include system image inside SDK instead of relying on sdkmanager. This ensures emulator functionality.
           system-images-android-36-google-apis-playstore-x86-64
         ]) // {
@@ -180,6 +180,7 @@
         minSdkVersion = "21"; 
         kotlinVersion = "2.0.21";
         agpVersion = "8.12.3"; # Android Gradle Plugin
+        ndkVersion = "27.0.12077973";
 
       in
       {
@@ -468,8 +469,6 @@
               echo "android.cmake.path=${pkgs.cmake}/bin" >> android/gradle.properties
               echo "android.ninja.path=${pkgs.ninja}/bin" >> android/gradle.properties
               echo "android.cmake.version=" >> android/gradle.properties
-
-              # ALSO ADD CMAKE_MAKE_PROGRAM override
               echo "android.cmake.makeProgram=${pkgs.ninja}/bin/ninja" >> android/gradle.properties
             fi
 
@@ -491,6 +490,16 @@
               sed -i -e "s/com.android.application.*version.*'[0-9.]*'/com.android.application' version '${agpVersion}'/g" android/build.gradle
               sed -i -e "s/org.jetbrains.kotlin.android.*version.*'[0-9.]*'/org.jetbrains.kotlin.android' version '${kotlinVersion}'/g" android/build.gradle
               sed -i -e "s/minSdkVersion [0-9]*/minSdkVersion ${minSdkVersion}/g" android/app/build.gradle
+            fi
+
+            #Pin NDK version in Gradle build files
+            if [ -f "android/app/build.gradle.kts" ]; then
+              sed -i '/ndkVersion\s*=/d' android/app/build.gradle.kts
+              if grep -q "android\s*{" android/app/build.gradle.kts; then
+                sed -i "/android\s*{/a \    ndkVersion = \"${ndkVersion}\"" android/app/build.gradle.kts
+              else
+                echo -e "\nandroid {\n    ndkVersion = \"${ndkVersion}\"\n}" >> android/app/build.gradle.kts
+              fi
             fi
 
             # Create AVD if missing
@@ -543,7 +552,9 @@
 
             # Mark environment as ready for fast path next time
             touch "$PWD/.flutter_env_ready"
-            echo ".flutter_env_ready" >> .gitignore
+            if ! grep -qxF ".flutter_env_ready" .gitignore; then
+              echo ".flutter_env_ready" >> .gitignore
+            fi
 
             echo "👉 To launch the emulator, run:"
             echo "    run-emulator"
@@ -560,5 +571,6 @@
       }).env;
     });
 }
+
 
 
