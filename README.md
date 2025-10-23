@@ -22,6 +22,10 @@ NDK (Native Development Kit) support for adding native code to your project
 Verify the NDK version: Check that the ndkVersion variable in flake.nix matches the available versions in your Nixpkgs channel.
 Check the architecture: Ensure that the system = "x86_64-linux" line is correct for your system architecture.
 Force Environment Rebuld: remove ".flutter_env_ready" and the .android folder. After performing nix develop, the environment should be re-established.
+
+# Planned Future Improvements
+
+* swap out my custom wrapper for the emulator with nixGL for better compatibility with certain Wayland compositors such as Niri & Hyprland. This Should also improve compatibility with non nixos systems. I should be working on this within weeks from this commit.
      
 
 # License 
