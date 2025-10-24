@@ -25,7 +25,8 @@ Force Environment Rebuld: remove ".flutter_env_ready" and the .android folder. A
 
 # Planned Future Improvements
 
-* swap out my custom wrapper for the emulator with nixGL for better compatibility with certain Wayland compositors such as Niri & Hyprland. This Should also improve compatibility with non nixos systems. I should be working on this within weeks from this commit.
+* Compatibility with wayland compositors have been massively improved on my development repo. Will apply fixes onto the public repo after further testing in about a week.
+* Plans to reintroduce full version pinning for gradle , kotlin, ndk, sdk agp etc.
      
 
 # License 
