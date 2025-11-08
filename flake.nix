@@ -1,3 +1,4 @@
+#just a test comment
 {
   description = "Flutter + Android SDK Dev Shell with writable SDK, automatic licenses, NDK, cmdline-tools, emulator, and system image";
 
@@ -47,13 +48,47 @@
           #!/usr/bin/env bash
           echo "Launching emulator ..."
 
+          echo "🔐 Granting local X access with xhost for DISPLAY=$DISPLAY..."
+          
+          # CRITICAL: Define the explicit path to the Nix-built xhost
+          NIX_XHOST="${pkgs.xorg.xhost}/bin/xhost"
+          
+          if [ -x "$NIX_XHOST" ] && [ -n "$DISPLAY" ]; then
+            # *** USE NIX-PROVIDED XHOST DIRECTLY ***
+            "$NIX_XHOST" +local: > /dev/null
+            if [ $? -eq 0 ]; then
+              XHOST_CLEANUP=true
+              echo "✅ X access granted successfully via Nix-xhost."
+            else
+              echo "❌ Nix-xhost command failed. Authorization may still be blocked."
+              XHOST_CLEANUP=false
+            fi
+          else
+            echo "⚠️ Warning: Nix-xhost binary not found at $NIX_XHOST or DISPLAY not set. Fix skipped."
+            XHOST_CLEANUP=false
+          fi
+          
+          # ---------------------------------------------
+          # FHS LIBRARY PREPENDING 
+          # Solves: Qt XCB plugin crash during -gpu host initialization.
+          # Ensures core libraries are found via FHS symlinks.
+          # ---------------------------------------------
+          # Use the FHS_LIB path provided by your shell's environment
+          if [ -n "$FHS_LIB" ]; then
+            export LD_LIBRARY_PATH="$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
+          else
+            echo "❌ Error: FHS_LIB is not set. Library path fix will not work correctly."
+          fi
+
           # ----------------------------
           # Detect display server
           # ----------------------------
           if [ -n "$WAYLAND_DISPLAY" ]; then
             echo "🌿 Wayland detected: $WAYLAND_DISPLAY"
             USE_WAYLAND=true
-            export DISPLAY=:0  # Force XWayland
+            if [ -z "$DISPLAY" ]; then
+              export DISPLAY=:0 
+            fi
             export QT_QPA_PLATFORM=xcb #Force XWayland 
           else
             echo "🖥️  X11 detected: ${DISPLAY:-:0}"
@@ -96,7 +131,7 @@
           if [ -d "/run/opengl-driver" ]; then
               echo "✅ NVIDIA/OpenGL driver detected"
               LD_PATH_BASE="$FHS_LIB/usr/lib"
-              export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
+              export LD_LIBRARY_PATH="/run/opengl-driver/lib:$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
               export LIBGL_DRIVERS_PATH="/run/opengl-driver/lib/dri"
               export MESA_LOADER_DRIVER_OVERRIDE=""
           else
@@ -107,8 +142,16 @@
               export MESA_LOADER_DRIVER_OVERRIDE=i965
           fi
 
+          if [ -d "/run/opengl-driver" ]; then
+              echo "⚠️ Forcing Vulkan/Mesa device selection for NVIDIA"
+              # This environment variable helps the Vulkan loader find the correct driver JSON file.
+              export MESA_VULKAN_DEVICE_SELECT="${pkgs.vulkan-loader}/etc/vulkan/icd.d/nvidia_icd.json"
+          fi
 
-          # ---------------------------------------------
+          # This is a fix to force the emulator to use the host's GL/Vulkan stack
+          export QEMU_GL_ENABLE=1
+          export QEMU_VULKAN_ENABLE=1
+          export LD_PRELOAD="${pkgs.libglvnd}/lib/libGL.so.1" # Only preload libGL.so.1          # ---------------------------------------------
           # Physical Keyboard & side panel Functionality
           # ---------------------------------------------
           # Check home directory AVD
@@ -139,9 +182,14 @@
             fi
           fi
 
-          # ----------------------------
-          # Run the emulator with enhanced input options
-          # ----------------------------
+          # ---------------------------------------------
+          # Run the emulator with Cleanup Trap
+          # ---------------------------------------------
+          # Set a trap to ensure xhost is cleaned up even if the script is aborted
+          if $XHOST_CLEANUP; then
+            trap "xhost -local: > /dev/null; echo '✅ X access revoked.'" EXIT
+          fi
+
           exec emulator -avd android_emulator \
             -gpu host \
             -no-snapshot \
@@ -150,7 +198,6 @@
             -port 5554 \
             -grpc 8554 \
             -qemu -enable-kvm \
-            "$@"
         '';
 
         # Patched Flutter derivation.
@@ -283,6 +330,7 @@
         profile = ''
           echo "FHS shell is active. Setting up Flutter+Android environment..."
           #  Critical nix-ld environment variables for dynamic linking compatibility
+          export PATH="$FHS_LIB/usr/bin:$PATH"
           export NIX_LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
             # Core runtime libraries
             pkgs.glibc
@@ -571,6 +619,5 @@
       }).env;
     });
 }
-
 
 
