@@ -19,13 +19,12 @@ NDK (Native Development Kit) support for adding native code to your project
 
 # Troubleshooting 
 
+Wayland Compatibility: Ensure XWayland is enabled on host wayland environments for emulator funtionality.
 Verify the NDK version: Check that the ndkVersion variable in flake.nix matches the available versions in your Nixpkgs channel.
 Check the architecture: Ensure that the system = "x86_64-linux" line is correct for your system architecture.
 Force Environment Rebuld: remove ".flutter_env_ready" and the .android folder. After performing nix develop, the environment should be re-established.
 
 # Planned Future Improvements
-
-* Compatibility with wayland compositors have been massively improved on my development repo. Will apply fixes onto the public repo after further testing in about a week.
 * Plans to reintroduce full version pinning for gradle , kotlin, ndk, sdk agp etc.
      
 
