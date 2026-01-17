@@ -3,10 +3,10 @@
   description = "Flutter + Android SDK Dev Shell with writable SDK, automatic licenses, NDK, cmdline-tools, emulator, and system image";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     android-nixpkgs = {
-      url = "github:tadfisher/android-nixpkgs";
+      url = "github:tadfisher/android-nixpkgs/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -419,10 +419,6 @@
             echo "⚡ Fast shell entry - Flutter environment ready!"
             echo "👉 To launch the emulator, run:"
             echo "    run-emulator"
-            echo "👉 To launch emulator with debug output:"
-            echo "    run-emulator -log-detailed"
-            echo "👉 To launch emulator headless (no GUI):"
-            echo "    run-emulator -no-window"
             echo ""
             echo "👉 To build your app, run:"
             echo "   flutter build apk --release"
@@ -606,10 +602,6 @@
 
             echo "👉 To launch the emulator, run:"
             echo "    run-emulator"
-            echo "👉 To launch emulator with debug output:"
-            echo "    run-emulator -log-detailed"
-            echo "👉 To launch emulator headless (no GUI):"
-            echo "    run-emulator -no-window"
             echo ""
             echo "👉 To build your app, run:"
             echo "   flutter build apk --release"
