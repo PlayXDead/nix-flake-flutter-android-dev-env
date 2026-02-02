@@ -76,6 +76,9 @@
           # Use the FHS_LIB path provided by your shell's environment
           if [ -n "$FHS_LIB" ]; then
             export LD_LIBRARY_PATH="$FHS_LIB/usr/lib:$LD_LIBRARY_PATH"
+            export ANDROID_HOME="$PWD/.android/sdk"
+            export ANDROID_SDK_ROOT="$ANDROID_HOME"
+            export PATH="$ANDROID_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
           else
             echo "❌ Error: FHS_LIB is not set. Library path fix will not work correctly."
           fi
@@ -224,9 +227,9 @@
         });
 
         # >>> PIN FOR COMPATIBILITY >>>
-        minSdkVersion = "21"; 
+        minSdkVersion = "24"; 
         kotlinVersion = "2.0.21";
-        agpVersion = "8.12.3"; # Android Gradle Plugin
+        agpVersion = "9.0.0"; # Android Gradle Plugin
         ndkVersion = "27.0.12077973";
 
       in
@@ -456,10 +459,10 @@
             mkdir -p "$ANDROID_HOME/cmake/3.22.1/bin"
 
             # Create symlinks to our Nix cmake and ninja
-            ln -sf "$(which cmake)" "$ANDROID_HOME/cmake/3.22.1/bin/cmake"
-            ln -sf "$(which ninja)" "$ANDROID_HOME/cmake/3.22.1/bin/ninja"
+            ln -sf "${pkgs.cmake}/bin/cmake" "$ANDROID_HOME/cmake/3.22.1/bin/cmake"
+            ln -sf "${pkgs.ninja}/bin/ninja" "$ANDROID_HOME/cmake/3.22.1/bin/ninja"
 
-            echo "Created cmake symlink: $ANDROID_HOME/cmake/3.22.1/bin/cmake -> $(which cmake)"
+            echo "Created cmake symlink: $ANDROID_HOME/cmake/3.22.1/bin/cmake -> ${pkgs.cmake}/bin/cmake)"
 
             chmod -R u+w "$ANDROID_HOME"
 
@@ -588,8 +591,8 @@
             export PATH="${pkgs.cmake}/bin:${pkgs.ninja}/bin:$PATH"
 
             # Verify our tools are accessible
-            echo "🔧 Using CMake: $(which cmake) ($(cmake --version | head -1))"
-            echo "🔧 Using Ninja: $(which ninja) ($(ninja --version))"
+            echo "🔧 Using CMake: ${pkgs.cmake}/bin/cmake ($(${pkgs.cmake}/bin/cmake --version | head -1))"
+            echo "🔧 Using Ninja: ${pkgs.ninja}/bin/ninja ($(${pkgs.ninja}/bin/ninja --version))"
 
             flutter doctor --quiet
             echo "✅ Flutter + Android dev shell ready."
