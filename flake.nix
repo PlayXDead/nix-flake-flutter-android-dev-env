@@ -5,13 +5,13 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
-    android-nixpkgs = {
+    android-nixpkgs-src = {
       url = "github:tadfisher/android-nixpkgs/main";
-      inputs.nixpkgs.follows = "nixpkgs";
+      flake = false;  # will patch it
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, android-nixpkgs }:
+  outputs = { self, nixpkgs, flake-utils, android-nixpkgs-src }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -22,7 +22,23 @@
           };
         };
 
-        androidEnv = android-nixpkgs.sdk.${system} (sdkPkgs: with sdkPkgs; [
+        # Patch android-nixpkgs to fix hostPlatform deprecation
+        patchedAndroidNixpkgsSrc = pkgs.runCommand "android-nixpkgs-patched" {} ''
+          cp -r ${android-nixpkgs-src} $out
+          chmod -R +w $out
+          
+          # Fix the hostPlatform reference in default.nix (line 10)
+          substituteInPlace $out/default.nix \
+            --replace "lib.meta.availableOn hostPlatform pkg" \
+                      "lib.meta.availableOn pkgs.stdenv.hostPlatform pkg"
+        '';
+
+        # Import the patched android-nixpkgs
+        android-nixpkgs = import patchedAndroidNixpkgsSrc {
+          inherit pkgs system;
+        };
+
+        androidEnv = android-nixpkgs.sdk (sdkPkgs: with sdkPkgs; [
           cmdline-tools-latest
           build-tools-36-0-0
           platform-tools
